@@ -16,6 +16,10 @@ from collections import Counter
 import sklearn
 from sklearn.feature_extraction.text import TfidfVectorizer
 from wit import Wit  # Importamos la librería de Wit.ai
+from flask import Flask, request, jsonify  # Importamos Flask para el backend
+
+# Inicializar Flask
+app = Flask(__name__)
 
 # Cargamos los pdf recolectados
 files_data = [
@@ -83,7 +87,6 @@ df = pd.DataFrame({
 # SAVE RESULTS ON A CSV
 df.to_csv('preprocessed_texts.csv', index=False)
 
-
 ###### INTEGRACIÓN DE WIT.AI ######
 # Token de acceso de Wit.ai
 WIT_AI_TOKEN = 'SYGOS6XM3N45VJXYYTXODPWO2FT7ZROM'
@@ -98,24 +101,4 @@ def procesar_mensaje(mensaje):
     entities = resp['entities']
     return intent, entities
 
-# Ejemplo de interacción con el chatbot
-def chatbot_interactivo():
-    print("Hello! Soy tu asistente de moda. ¿En qué puedo ayudarte?")
-    while True:
-        mensaje = input("Tú: ")
-        if mensaje.lower() in ["salir", "adiós", "chao"]:
-            print("Chatbot: ¡Hasta luego!")
-            break
-        intent, entities = procesar_mensaje(mensaje)
-        print(f"Intención detectada: {intent}")
-        print(f"Entidades detectadas: {entities}")
-        # Aquí puedes agregar lógica para responder según la intención y entidades
-        if intent == "buscar_tendencia":
-            print("Chatbot: Las tendencias actuales incluyen...")
-        elif intent == "recomendar_estilo":
-            print("Chatbot: Te recomiendo un estilo...")
-        else:
-            print("Chatbot: No entendí tu solicitud. ¿Puedes reformularla?")
-
-# Ejecutar el chatbot interactivo
-chatbot_interactivo()
+###### INTERFAZ GRÁFICA ######
