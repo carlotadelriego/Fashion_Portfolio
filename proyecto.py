@@ -16,10 +16,10 @@ from collections import Counter
 import sklearn
 from sklearn.feature_extraction.text import TfidfVectorizer
 from wit import Wit  # Importamos la librería de Wit.ai
-from flask import Flask, request, jsonify  # Importamos Flask para el backend
+import tkinter as tk
+from tkinter import scrolledtext
+from PIL import Image, ImageTk
 
-# Inicializar Flask
-app = Flask(__name__)
 
 # Cargamos los pdf recolectados
 files_data = [
@@ -44,6 +44,21 @@ def web_scraping(urls):
     return texts
 
 scraped_texts = web_scraping(urls)
+
+
+# Cargar las imágenes del dataset de moda divididas en carpetas por categorías
+dataset_path = '/Users/carlotafernandez/Desktop/Code/FASHION/Fashion_Portfolio-1/zara_dataset' 
+
+image_data = []
+
+for category in os.listdir(dataset_path):
+    category_path = os.path.join(dataset_path, category)
+    if os.path.isdir(category_path):
+        for image_file in os.listdir(category_path):
+            image_path = os.path.join(category_path, image_file)
+            image_data.append(image_path)
+
+
 
 ###### PREPROCESAMIENTO DEL TEXTO ######
 # Limpieza del texto
@@ -78,6 +93,7 @@ X = vectorizador.fit_transform(documents)
 key_words = vectorizador.get_feature_names_out()
 print(key_words)
 
+
 # CREATE A DATAFRAME WITH THE PROCESSED TEXT
 df = pd.DataFrame({
     'Original': [' '.join([token.text for token in doc]) for doc in tokenized_documents],
@@ -87,18 +103,70 @@ df = pd.DataFrame({
 # SAVE RESULTS ON A CSV
 df.to_csv('preprocessed_texts.csv', index=False)
 
+
+
 ###### INTEGRACIÓN DE WIT.AI ######
 # Token de acceso de Wit.ai
-WIT_AI_TOKEN = 'SYGOS6XM3N45VJXYYTXODPWO2FT7ZROM'
+WIT_AI_TOKEN = 'FG2VHKVK6SXU5NSGYKQ65LQZETS5ROQH'
 
 # Inicializar el cliente de Wit.ai
 client = Wit(WIT_AI_TOKEN)
 
 # Función para procesar el mensaje del usuario con Wit.ai
-def procesar_mensaje(mensaje):
-    resp = client.message(mensaje)
+def get_message_wit(message):
+    resp = client.message(message)
     intent = resp['intents'][0]['name'] if resp['intents'] else None
     entities = resp['entities']
     return intent, entities
 
+
+
 ###### INTERFAZ GRÁFICA ######
+def chatbot_interface():
+    # Create a window
+    window = tk.Tk()
+    window.title("Fashion Assistant Chatbot")
+
+    # Load and display the image
+    image = Image.open('/Users/carlotafernandez/Desktop/Code/FASHION/Fashion_Portfolio-1/LOGO_UIE_CUADRADO-01.jpg') 
+    image = image.resize((200, 150), Image.Resampling.LANCZOS)  # Resize the image
+    img = ImageTk.PhotoImage(image)
+
+    # Create a Label widget to display the image
+    image_label = tk.Label(window, image=img)
+    image_label.grid(row=0, column=1, padx=10, pady=10)  # Position the image to the side
+
+    # Create a scrolled text area to display the conversation
+    conversation_area = scrolledtext.ScrolledText(window, width=90, height=40, wrap=tk.WORD, state=tk.DISABLED)
+    conversation_area.grid(row=0, column=0, padx=10, pady=10)
+
+    # Create an entry box for the user to type their message
+    user_input_box = tk.Entry(window, width=60)
+    user_input_box.grid(row=1, column=0, padx=10, pady=10)
+
+    # Define a function to handle the sending of user input and getting the response
+    def send_message():
+        user_input = user_input_box.get()
+        if user_input.strip():  # Avoid empty messages
+            conversation_area.config(state=tk.NORMAL)
+            conversation_area.insert(tk.END, f"You: {user_input}\n")  # Show user input
+            conversation_area.yview(tk.END)
+            
+            
+            # Get the chatbot's response
+            wit_data = get_message_wit(user_input)
+            
+            conversation_area.insert(tk.END, f"Chatbot: {response}\n")  # Show chatbot response
+            conversation_area.yview(tk.END)
+            
+            user_input_box.delete(0, tk.END)  # Clear the input box
+
+    # Create a button to send the message
+    send_button = tk.Button(window, text="Send", width=10, command=send_message)
+    send_button.grid(row=1, column=1, padx=10, pady=10)
+
+    # Run the GUI main loop
+    window.mainloop()
+
+# Run the chatbot interface
+chatbot_interface()
