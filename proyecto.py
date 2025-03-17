@@ -1,4 +1,4 @@
-###### PROYECTOB CHATBOT MODA ######
+###### PROYECTO CHATBOT MODA ######
 # Autora: Carlota Fernández del Riego
 
 # Importamos las librerías necesarias
@@ -13,6 +13,9 @@ from spacy.lang.es.stop_words import STOP_WORDS
 import requests
 from bs4 import BeautifulSoup
 from collections import Counter
+import sklearn
+from sklearn.feature_extraction.text import TfidfVectorizer
+from wit import Wit  # Importamos la librería de Wit.ai
 
 # Cargamos los pdf recolectados
 files_data = [
@@ -37,17 +40,13 @@ def web_scraping(urls):
     return texts
 
 scraped_texts = web_scraping(urls)
-print(scraped_texts)
-
-
 
 ###### PREPROCESAMIENTO DEL TEXTO ######
 # Limpieza del texto
 # 1. TOKENIZATION - SPACY 
-nlp = spacy.load("en_core_news_sm")
+nlp = spacy.load("en_core_web_sm")
 documents = files_data + scraped_texts
 tokenized_documents = [nlp(document) for document in documents]
-print(tokenized_documents)
 
 # 2. DELETE de stopwords
 def remove_stopwords(tokenized_docs):
@@ -58,7 +57,6 @@ def remove_stopwords(tokenized_docs):
     return filtered_docs
 
 filtered_documents = remove_stopwords(tokenized_documents)
-print(filtered_documents)
 
 # 3. NORMALIZATION 
 def normalize_tokens(tokenized_docs):
@@ -69,7 +67,12 @@ def normalize_tokens(tokenized_docs):
     return normalized_docs
 
 normalized_documents = normalize_tokens(tokenized_documents)
-print(normalized_documents)
+
+# 4. EXTRACTING KEY NOUNS
+vectorizador = TfidfVectorizer(max_features=10)
+X = vectorizador.fit_transform(documents)
+key_words = vectorizador.get_feature_names_out()
+print(key_words)
 
 # CREATE A DATAFRAME WITH THE PROCESSED TEXT
 df = pd.DataFrame({
@@ -77,26 +80,42 @@ df = pd.DataFrame({
     'Filtered': [' '.join(doc) for doc in filtered_documents],
     'Normalized': [' '.join(doc) for doc in normalized_documents]
 })
-
-print(df)
-
 # SAVE RESULTS ON A CSV
 df.to_csv('preprocessed_texts.csv', index=False)
 
-# VISUALIZATION
-# FREQUENCY OF WORDS IN THE TEXT
-all_normalized_tokens = [token for doc in normalized_documents for token in doc]
-token_counts = Counter(all_normalized_tokens)
 
-# SHOW THE MOST COMMON WORDS
-common_tokens = token_counts.most_common(10)
-print(common_tokens)
+###### INTEGRACIÓN DE WIT.AI ######
+# Token de acceso de Wit.ai
+WIT_AI_TOKEN = 'SYGOS6XM3N45VJXYYTXODPWO2FT7ZROM'
 
-# GRAPH OF THE MOST COMMON WORDS
-tokens, counts = zip(*common_tokens)
-plt.figure(figsize=(10, 6))
-plt.bar(tokens, counts)
-plt.xlabel('Tokens')
-plt.ylabel('Frecuencia')
-plt.title('Top 10 Tokens más comunes')
-plt.show()
+# Inicializar el cliente de Wit.ai
+client = Wit(WIT_AI_TOKEN)
+
+# Función para procesar el mensaje del usuario con Wit.ai
+def procesar_mensaje(mensaje):
+    resp = client.message(mensaje)
+    intent = resp['intents'][0]['name'] if resp['intents'] else None
+    entities = resp['entities']
+    return intent, entities
+
+# Ejemplo de interacción con el chatbot
+def chatbot_interactivo():
+    print("Hello! Soy tu asistente de moda. ¿En qué puedo ayudarte?")
+    while True:
+        mensaje = input("Tú: ")
+        if mensaje.lower() in ["salir", "adiós", "chao"]:
+            print("Chatbot: ¡Hasta luego!")
+            break
+        intent, entities = procesar_mensaje(mensaje)
+        print(f"Intención detectada: {intent}")
+        print(f"Entidades detectadas: {entities}")
+        # Aquí puedes agregar lógica para responder según la intención y entidades
+        if intent == "buscar_tendencia":
+            print("Chatbot: Las tendencias actuales incluyen...")
+        elif intent == "recomendar_estilo":
+            print("Chatbot: Te recomiendo un estilo...")
+        else:
+            print("Chatbot: No entendí tu solicitud. ¿Puedes reformularla?")
+
+# Ejecutar el chatbot interactivo
+chatbot_interactivo()
