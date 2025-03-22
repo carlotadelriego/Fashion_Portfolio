@@ -13,32 +13,29 @@ from spacy.lang.es.stop_words import STOP_WORDS
 import requests
 from bs4 import BeautifulSoup
 from collections import Counter
-import sklearn
-from sklearn.feature_extraction.text import TfidfVectorizer
-from wit import Wit  # Importamos la librería de Wit.ai
+from sklearn.feature_extraction.text import TfidfVectorizer  # Solo necesario para el TF-IDF
 import tkinter as tk
 from tkinter import scrolledtext
 from PIL import Image, ImageTk
-from transformers import pipeline, BertTokenizer, BertModel  # Para GPT-2 y BERT
-import torch  # Para visión por computadora
-from torchvision import models, transforms  # Para procesamiento de imágenes
+from rasa.core.agent import Agent  # Rasa para el chatbot
+from transformers import pipeline, BertTokenizer, BertModel  # Para BERT y GPT
+import torch
+from torchvision import models, transforms
 
-# Cargar modelos BERT
-tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-cased') # Puedes usar otro modelo multilingue
+# Cargar modelos de Transformers
+tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-cased')
 bert_model = BertModel.from_pretrained('bert-base-multilingual-cased')
+text_generator = pipeline("text-generation", model="gpt2", framework="pt")
+vision_model = models.resnet50(weights='IMAGENET1K_V1')
+vision_model.eval()
 
-# Cargamos los pdf recolectados
-files_data = [
-    '/Users/carlotafernandez/Desktop/Code/FASHION/Fashion_Portfolio-1/Mode_system.pdf',
-    '/Users/carlotafernandez/Desktop/Code/FASHION/Fashion_Portfolio-1/christianDior.pdf'
-]
+# Cargar el modelo entrenado de Rasa
+agent = Agent.load("models")
 
-# Web scraping
-urls = [
-    'https://www.vogue.com/article/9-outdated-fashion-pieces-vogue-editors-still-love', 
-    'https://www.vogue.com/article/metropolitan-museum-lorna-simpson', 
-    'https://www.elle.com/culture/music/a63324386/lady-gaga-mayhem-interview-2025/'
-]
+# Función para procesar el mensaje y obtener la respuesta de Rasa
+def get_message_rasa(message):
+    response = agent.handle_text(message)
+    return response[0]['text']
 
 # Función para hacer web scraping y extraer los textos de los enlaces
 def web_scraping(urls):
@@ -50,12 +47,24 @@ def web_scraping(urls):
         texts.append(text)
     return texts
 
+# Cargar los pdf recolectados
+files_data = [
+    '/Users/carlotafernandez/Desktop/Code/FASHION/Fashion_Portfolio-1/Mode_system.pdf',
+    '/Users/carlotafernandez/Desktop/Code/FASHION/Fashion_Portfolio-1/christianDior.pdf'
+]
+
+# Web scraping
+urls = [
+    'https://www.vogue.com/article/9-outdated-fashion-pieces-vogue-editors-still-love',
+    'https://www.vogue.com/article/metropolitan-museum-lorna-simpson',
+    'https://www.elle.com/culture/music/a63324386/lady-gaga-mayhem-interview-2025/'
+]
+
 scraped_texts = web_scraping(urls)
 
 
-###### PREPROCESAMIENTO DEL TEXTO ######
-# Limpieza del texto
 
+###### PREPROCESAMIENTO DEL TEXTO ######
 # Cargar el modelo de spaCy
 nlp = spacy.load("en_core_web_sm")
 
@@ -112,7 +121,16 @@ def analyze_trends(texts):
         embeddings = outputs.last_hidden_state.mean(dim=1)  # Obtener embeddings promedio
         # Aquí iría la lógica para extraer información de tendencias a partir de los embeddings
         # (por ejemplo, identificar palabras clave relacionadas con tendencias y su contexto)
-        trend_info = "Información de tendencias extraída con BERT"  # Reemplazar con lógica real
+        
+        # Ejemplo: Extraer las 5 palabras más relevantes (puedes ajustar esta lógica)
+        relevant_words = []
+        for i in range(5):
+            word_idx = torch.argmax(embeddings[0]).item()
+            word = tokenizer.decode([word_idx])
+            relevant_words.append(word)
+            embeddings[0][word_idx] = -1  # Evitar seleccionar la misma palabra nuevamente
+        
+        trend_info = f"Tendencias encontradas: {', '.join(relevant_words)}"
         all_trend_info.append(trend_info)
     return all_trend_info
 
@@ -129,42 +147,38 @@ df = pd.DataFrame({
 df.to_csv('preprocessed_texts.csv', index=False)
 
 
+
+
 ###### GENERAR DESCRIPCIONES AUTOMÁTICAS DE OUTFITS ######
-# Cargar modelo de visión por computadora (ResNet)
-vision_model = models.resnet50(weights='IMAGENET1K_V1')  # Carga las pesas de imagenet.
-vision_model.eval()
-
-# Cargar modelo de generación de texto (GPT-2)
-text_generator = pipeline("text-generation", model="gpt2", framework="pt")
-
 # Función para generar descripciones basadas en imágenes
 def generate_description_from_image(image_path):
-    # Preprocesar la imagen
     preprocess = transforms.Compose([
         transforms.Resize(256),
         transforms.CenterCrop(224),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
-    
     image = Image.open(image_path)
+    image = preprocess(image).unsqueeze(0)
+    with torch.no_grad():
+        features = vision_model(image)
+    description = text_generator("This outfit features", max_length=50, num_return_sequences=1)
+    return description[0]['generated_text']
+
+# Función para generar descripciones basadas en preferencias
+def generate_description_from_preferences(preferences):
+    color = preferences.get('color', 'neutral')
+    style = preferences.get('style', 'casual')
+    occasion = preferences.get('occasion', 'everyday')
+    prompt = f"A {color} {style} outfit suitable for {occasion} occasions. This outfit includes"
+    description = text_generator(prompt, max_length=50, num_return_sequences=1)
+    return description[0]['generated_text']
+
+
 
 
 ###### INTERFAZ GRÁFICA ######
-import tkinter as tk
-from tkinter import scrolledtext
-from PIL import Image, ImageTk
-from rasa.core.agent import Agent
-import os
-
-# Cargar el modelo entrenado de Rasa
-agent = Agent.load("models")
-
-# Función para procesar el mensaje y obtener la respuesta de Rasa
-def get_message_rasa(message):
-    response = agent.handle_text(message)
-    return response[0]['text']
-
+# Función para crear la interfaz gráfica del chatbot
 def chatbot_interface():
     # Crear una ventana
     window = tk.Tk()
@@ -217,4 +231,3 @@ def chatbot_interface():
 
 # Ejecutar la interfaz del chatbot
 chatbot_interface()
-
