@@ -127,6 +127,7 @@ print("✅ Trained recommendation model.")
 def get_similar_items(input_image, X_features, k=5):
     # Preprocesar la imagen de entrada
     input_img = preprocess_image(input_image)  # Utiliza la misma función de preprocesamiento
+    # Extraer características de la imagen de entrada
     input_features = feature_extractor.predict(np.expand_dims(input_img, axis=0))
     
     # Calcular similitud con todas las prendas
