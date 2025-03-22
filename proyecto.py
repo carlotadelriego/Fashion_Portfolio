@@ -19,11 +19,18 @@ from wit import Wit  # Importamos la librería de Wit.ai
 import tkinter as tk
 from tkinter import scrolledtext
 from PIL import Image, ImageTk
+from transformers import pipeline, BertTokenizer, BertModel  # Para GPT-2 y BERT
+import torch  # Para visión por computadora
+from torchvision import models, transforms  # Para procesamiento de imágenes
 
+# Cargar modelos BERT
+tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-cased') # Puedes usar otro modelo multilingue
+bert_model = BertModel.from_pretrained('bert-base-multilingual-cased')
 
 # Cargamos los pdf recolectados
 files_data = [
-    '/Users/carlotafernandez/Desktop/Code/FASHION/Fashion_Portfolio-1/Dior_english.pdf'
+    '/Users/carlotafernandez/Desktop/Code/FASHION/Fashion_Portfolio-1/Mode_system.pdf',
+    '/Users/carlotafernandez/Desktop/Code/FASHION/Fashion_Portfolio-1/christianDior.pdf'
 ]
 
 # Web scraping
@@ -46,53 +53,71 @@ def web_scraping(urls):
 scraped_texts = web_scraping(urls)
 
 
-# Cargar las imágenes del dataset de moda divididas en carpetas por categorías
-dataset_path = '/Users/carlotafernandez/Desktop/Code/FASHION/Fashion_Portfolio-1/zara_dataset' 
-
-image_data = []
-
-for category in os.listdir(dataset_path):
-    category_path = os.path.join(dataset_path, category)
-    if os.path.isdir(category_path):
-        for image_file in os.listdir(category_path):
-            image_path = os.path.join(category_path, image_file)
-            image_data.append(image_path)
-
-
-
 ###### PREPROCESAMIENTO DEL TEXTO ######
 # Limpieza del texto
-# 1. TOKENIZATION - SPACY 
+
+# Cargar el modelo de spaCy
 nlp = spacy.load("en_core_web_sm")
+
+# 1. TOKENIZATION - SPACY
 documents = files_data + scraped_texts
 tokenized_documents = [nlp(document) for document in documents]
 
-# 2. DELETE de stopwords
+# 2. ELIMINAR STOPWORDS
 def remove_stopwords(tokenized_docs):
     filtered_docs = []
     for doc in tokenized_docs:
-        filtered_tokens = [token.text for token in doc if token.text.lower() not in STOP_WORDS]
-        filtered_docs.append(filtered_tokens)
+        filtered_tokens = [token.text for token in doc if token.text.lower() not in STOP_WORDS and token.is_alpha]
+        filtered_docs.append(" ".join(filtered_tokens))  # Convertir a string
     return filtered_docs
-
 filtered_documents = remove_stopwords(tokenized_documents)
 
-# 3. NORMALIZATION 
+# 3. NORMALIZACIÓN (LEMATIZACIÓN)
 def normalize_tokens(tokenized_docs):
     normalized_docs = []
     for doc in tokenized_docs:
-        normalized_tokens = [token.lemma_.lower() for token in doc if token.lemma_ != '-PRON-']
-        normalized_docs.append(normalized_tokens)
+        normalized_tokens = [token.lemma_.lower() for token in doc if token.lemma_!= '-PRON-' and token.is_alpha]
+        normalized_docs.append(" ".join(normalized_tokens))  # Convertir a string
     return normalized_docs
-
 normalized_documents = normalize_tokens(tokenized_documents)
 
-# 4. EXTRACTING KEY NOUNS
-vectorizador = TfidfVectorizer(max_features=10)
-X = vectorizador.fit_transform(documents)
-key_words = vectorizador.get_feature_names_out()
-print(key_words)
+# 4. PROCESAR DOCUMENTOS PARA TF-IDF
+processed_documents = filtered_documents + normalized_documents  # Debe ser una lista de strings
 
+# 5. EXTRACCIÓN DE PALABRAS CLAVE CON TF-IDF
+vectorizer = TfidfVectorizer(stop_words='english', max_df=0.9, min_df=0.1)
+X = vectorizer.fit_transform(processed_documents)
+keywords = vectorizer.get_feature_names_out()
+tfidf_scores = X.toarray().mean(axis=0)  # Promedio de los scores por documento
+df_keywords = pd.DataFrame({'keyword': keywords, 'score': tfidf_scores})
+fashion_keywords = {"fashion", "style", "dress", "clothing", "trend", "outfit", "wear", "designer", "runway", "chic", "elegant"}
+df_keywords = df_keywords[df_keywords['keyword'].isin(fashion_keywords)]
+df_keywords = df_keywords.sort_values(by='score', ascending=False)
+
+# 6. APLICAR EMBEDDINGS PARA ENTENDER EL SIGNIFICADO
+def get_similar_fashion_terms(word, n=5):
+    """ Encuentra palabras similares a un término de moda usando embeddings de spaCy """
+    token = nlp.vocab[word]
+    similar_words = sorted(nlp.vocab, key=lambda w: token.similarity(w), reverse=True)
+    # Filtrar palabras con sentido y devolver las más cercanas
+    return [w.text for w in similar_words if w.is_alpha and w.has_vector][:n]
+
+# 7. APLICAR BERT PARA ANALIZAR TENDENCIAS
+def analyze_trends(texts):
+    """ Analiza textos de moda usando BERT para extraer información de tendencias """
+    all_trend_info = []
+    for text in texts:
+        inputs = tokenizer(text, return_tensors="pt", max_length=512, truncation=True)
+        outputs = bert_model(**inputs)
+        embeddings = outputs.last_hidden_state.mean(dim=1)  # Obtener embeddings promedio
+        # Aquí iría la lógica para extraer información de tendencias a partir de los embeddings
+        # (por ejemplo, identificar palabras clave relacionadas con tendencias y su contexto)
+        trend_info = "Información de tendencias extraída con BERT"  # Reemplazar con lógica real
+        all_trend_info.append(trend_info)
+    return all_trend_info
+
+trend_info = analyze_trends(processed_documents)
+print(trend_info) # Imprimir la informacion de tendencias extraidas
 
 # CREATE A DATAFRAME WITH THE PROCESSED TEXT
 df = pd.DataFrame({
@@ -104,69 +129,92 @@ df = pd.DataFrame({
 df.to_csv('preprocessed_texts.csv', index=False)
 
 
+###### GENERAR DESCRIPCIONES AUTOMÁTICAS DE OUTFITS ######
+# Cargar modelo de visión por computadora (ResNet)
+vision_model = models.resnet50(weights='IMAGENET1K_V1')  # Carga las pesas de imagenet.
+vision_model.eval()
 
-###### INTEGRACIÓN DE WIT.AI ######
-# Token de acceso de Wit.ai
-WIT_AI_TOKEN = 'FG2VHKVK6SXU5NSGYKQ65LQZETS5ROQH'
+# Cargar modelo de generación de texto (GPT-2)
+text_generator = pipeline("text-generation", model="gpt2", framework="pt")
 
-# Inicializar el cliente de Wit.ai
-client = Wit(WIT_AI_TOKEN)
-
-# Función para procesar el mensaje del usuario con Wit.ai
-def get_message_wit(message):
-    resp = client.message(message)
-    intent = resp['intents'][0]['name'] if resp['intents'] else None
-    entities = resp['entities']
-    return intent, entities
-
+# Función para generar descripciones basadas en imágenes
+def generate_description_from_image(image_path):
+    # Preprocesar la imagen
+    preprocess = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+    
+    image = Image.open(image_path)
 
 
 ###### INTERFAZ GRÁFICA ######
+import tkinter as tk
+from tkinter import scrolledtext
+from PIL import Image, ImageTk
+from rasa.core.agent import Agent
+import os
+
+# Cargar el modelo entrenado de Rasa
+agent = Agent.load("models")
+
+# Función para procesar el mensaje y obtener la respuesta de Rasa
+def get_message_rasa(message):
+    response = agent.handle_text(message)
+    return response[0]['text']
+
 def chatbot_interface():
-    # Create a window
+    # Crear una ventana
     window = tk.Tk()
     window.title("Fashion Assistant Chatbot")
+    window.geometry("700x600")  # Ajustar tamaño de la ventana
 
-    # Load and display the image
-    image = Image.open('/Users/carlotafernandez/Desktop/Code/FASHION/Fashion_Portfolio-1/LOGO_UIE_CUADRADO-01.jpg') 
-    image = image.resize((200, 150), Image.Resampling.LANCZOS)  # Resize the image
+    # Cargar y mostrar la imagen
+    image = Image.open('/Users/carlotafernandez/Desktop/Code/FASHION/Fashion_Portfolio-1/LOGO_UIE_CUADRADO-01.jpg')  # Cambiar ruta de la imagen si es necesario
+    image = image.resize((200, 150), Image.Resampling.LANCZOS)  # Redimensionar la imagen
     img = ImageTk.PhotoImage(image)
 
-    # Create a Label widget to display the image
+    # Crear un widget Label para mostrar la imagen
     image_label = tk.Label(window, image=img)
-    image_label.grid(row=0, column=1, padx=10, pady=10)  # Position the image to the side
+    image_label.grid(row=0, column=1, padx=10, pady=10)  # Posicionar la imagen al lado
 
-    # Create a scrolled text area to display the conversation
-    conversation_area = scrolledtext.ScrolledText(window, width=90, height=40, wrap=tk.WORD, state=tk.DISABLED)
-    conversation_area.grid(row=0, column=0, padx=10, pady=10)
+    # Crear un área de texto con scroll para mostrar la conversación
+    conversation_area = scrolledtext.ScrolledText(window, width=80, height=25, wrap=tk.WORD, state=tk.DISABLED, font=("Arial", 12))
+    conversation_area.grid(row=0, column=0, padx=10, pady=10, columnspan=2)  # Posicionar en una fila ancha
 
-    # Create an entry box for the user to type their message
-    user_input_box = tk.Entry(window, width=60)
-    user_input_box.grid(row=1, column=0, padx=10, pady=10)
+    # Título en la parte superior
+    welcome_label = tk.Label(window, text="Welcome to Fashion Assistant Chatbot!", font=("Arial", 14))
+    welcome_label.grid(row=1, column=0, columnspan=2, pady=10)
 
-    # Define a function to handle the sending of user input and getting the response
+    # Crear una caja de entrada para que el usuario escriba su mensaje
+    user_input_box = tk.Entry(window, width=60, font=("Arial", 12))
+    user_input_box.grid(row=2, column=0, padx=10, pady=10)
+
+    # Función para manejar el envío de mensajes
     def send_message():
         user_input = user_input_box.get()
-        if user_input.strip():  # Avoid empty messages
+        if user_input.strip():  # Evitar mensajes vacíos
             conversation_area.config(state=tk.NORMAL)
-            conversation_area.insert(tk.END, f"You: {user_input}\n")  # Show user input
+            conversation_area.insert(tk.END, f"You: {user_input}\n")  # Mostrar la entrada del usuario
             conversation_area.yview(tk.END)
             
+            # Obtener la respuesta del chatbot usando Rasa
+            rasa_response = get_message_rasa(user_input)
             
-            # Get the chatbot's response
-            wit_data = get_message_wit(user_input)
-            
-            conversation_area.insert(tk.END, f"Chatbot: {response}\n")  # Show chatbot response
+            conversation_area.insert(tk.END, f"Chatbot: {rasa_response}\n")  # Mostrar la respuesta del chatbot
             conversation_area.yview(tk.END)
             
-            user_input_box.delete(0, tk.END)  # Clear the input box
+            user_input_box.delete(0, tk.END)  # Limpiar la caja de entrada
 
-    # Create a button to send the message
-    send_button = tk.Button(window, text="Send", width=10, command=send_message)
-    send_button.grid(row=1, column=1, padx=10, pady=10)
+    # Crear un botón para enviar el mensaje
+    send_button = tk.Button(window, text="Send", width=10, command=send_message, font=("Arial", 12))
+    send_button.grid(row=2, column=1, padx=10, pady=10)
 
-    # Run the GUI main loop
+    # Ejecutar el bucle principal de la GUI
     window.mainloop()
 
-# Run the chatbot interface
+# Ejecutar la interfaz del chatbot
 chatbot_interface()
+
