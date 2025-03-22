@@ -49,6 +49,8 @@ for _, row in df.iterrows():
 
 print("✅ Images processed correctly.")
 
+
+
 X = np.array([x[0] for x in processed_data], dtype=np.float32)
 y = np.array([x[1] for x in processed_data])
 
@@ -65,8 +67,10 @@ output_layer = layers.Dense(len(label_encoder.classes_), activation="softmax")(x
 model = models.Model(inputs=base_model.input, outputs=output_layer)
 model.compile(optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"])
 
-model.fit(X, y, epochs=3, batch_size=32)
+model.fit(X, y, epochs=5, batch_size=32)
 print("✅ Modelo CNN con VGG16 entrenado.")
+
+
 
 feature_extractor = models.Model(inputs=base_model.input, outputs=x)
 X_features = feature_extractor.predict(X)
@@ -77,6 +81,8 @@ labels = kmeans.fit_predict(X_features)
 df["cluster"] = labels
 df.to_csv("clustered_dataset.csv", index=False)
 print("✅ Clustering completed.")
+
+
 
 user_ratings = pd.DataFrame({
     "user_id": [random.randint(1, 100) for _ in range(100)],
@@ -90,6 +96,8 @@ svd_model = SVD()
 cross_validate(svd_model, data, cv=5)
 print("✅ Trained recommendation model.")
 
+
+
 def get_similar_items(uploaded_file, X_features):
     if uploaded_file is not None:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
@@ -97,7 +105,7 @@ def get_similar_items(uploaded_file, X_features):
             temp_path = temp_file.name
         
         input_img = preprocess_image(temp_path)
-        input_img = np.expand_dims(input_img, axis=0)  # Agregar batch dimension aquí
+        input_img = np.expand_dims(input_img, axis=0)  
         
         features = feature_extractor.predict(input_img)
         similarities = cosine_similarity(features, X_features)
@@ -106,6 +114,8 @@ def get_similar_items(uploaded_file, X_features):
         os.remove(temp_path)
         return df.iloc[similar_indices]
     return pd.DataFrame()
+
+
 
 st.title("Fashion Recommendation System")
 uploaded_file = st.file_uploader("Upload an image of a garment", type=["jpg", "png"])
