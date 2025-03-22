@@ -140,7 +140,7 @@ uploaded_file = st.file_uploader("Sube una imagen de una prenda", type=["jpg", "
 
 if uploaded_file:
     img = Image.open(uploaded_file)
-    st.image(img, caption="Imagen subida", use_column_width=True)
+    st.image(img, caption="Imagen subida", use_container_width=True)
     
     # Aquí puedes agregar la recomendación basada en los modelos
     st.write("Buscando prendas similares...")
