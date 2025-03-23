@@ -14,6 +14,8 @@ import streamlit as st
 from PIL import Image
 import random
 import tempfile
+from tensorflow.keras.applications import ResNet50
+from tensorflow.keras.applications.resnet50 import preprocess_input
 
 # Ruta del dataset
 base_dir = '/Users/carlotafernandez/Desktop/Code/FASHION/zara_dataset'
@@ -39,7 +41,8 @@ def preprocess_image(image_path):
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = cv2.resize(img, (224, 224))
     img = img / 255.0
-    return img  # Sin expand_dims para evitar dimensiones extra
+    img = np.expand_dims(img, axis=0)  # Añade una dimensión para el batch
+    return img
 
 processed_data = []
 for _, row in df.iterrows():
@@ -49,6 +52,21 @@ for _, row in df.iterrows():
 
 print("✅ Images processed correctly.")
 
+
+# Carga el modelo ResNet50 pre-entrenado
+resnet_model = ResNet50(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
+resnet_model.trainable = False  # Congela las capas pre-entrenadas
+
+# Añade capas para la clasificación de estilos
+x = layers.GlobalAveragePooling2D()(resnet_model.output)
+x = layers.Dense(128, activation='relu')(x)
+output_layer_style = layers.Dense(5, activation='softmax')(x)  # Ajusta el número de clases según tus estilos
+
+# Crea el modelo final
+style_model = models.Model(inputs=resnet_model.input, outputs=output_layer_style)
+style_model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+
+print("✅ Modelo ResNet50 para clasificación de estilos cargado.")
 
 
 X = np.array([x[0] for x in processed_data], dtype=np.float32)
@@ -105,15 +123,19 @@ def get_similar_items(uploaded_file, X_features):
             temp_path = temp_file.name
         
         input_img = preprocess_image(temp_path)
-        input_img = np.expand_dims(input_img, axis=0)  
         
+        # Extrae características para la similitud
         features = feature_extractor.predict(input_img)
         similarities = cosine_similarity(features, X_features)
         similar_indices = np.argsort(similarities[0])[::-1][:5]
         
+        # Clasifica el estilo
+        style_prediction = style_model.predict(input_img)
+        style_label = np.argmax(style_prediction)  # Obtiene el índice del estilo predicho
+        
         os.remove(temp_path)
-        return df.iloc[similar_indices]
-    return pd.DataFrame()
+        return df.iloc[similar_indices], style_label
+    return pd.DataFrame(), None
 
 
 
@@ -125,7 +147,11 @@ if uploaded_file:
     st.image(img, caption="Uploaded image", use_container_width=True)
     
     st.write("Looking for similar clothes...")
-    similar_items = get_similar_items(uploaded_file, X_features)
+    similar_items, style_label = get_similar_items(uploaded_file, X_features)
+    
+    if style_label is not None:
+        style_name = label_encoder.inverse_transform([style_label])[0]  # Obtiene el nombre del estilo
+        st.write(f"Predicted style: {style_name}")
     
     for _, item in similar_items.iterrows():
         st.image(item['ruta'], caption=f"Recommended: {item['clase']}", use_container_width=True)
